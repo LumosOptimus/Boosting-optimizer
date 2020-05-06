@@ -105,6 +105,7 @@ class Hopt(object):
     
     
     def ctb_regressor_cv_gpu(self, model_parameters):
+        # CV on GPU doesn't work
         regressor = CatBoostRegressor(**model_parameters['opt_params'], 
                                       loss_function = 'RMSE',
                                       task_type = 'GPU')
