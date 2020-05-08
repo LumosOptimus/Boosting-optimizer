@@ -1,98 +1,80 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Mar  3 10:38:04 2020
+@author: DMatveev
+"""
+
 import pandas as pd
 import numpy as np
 import logging
 
 from catboost import CatBoostRegressor, Pool, cv
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-#from sklearn.ensemble import IsolationForest
-#from sklearn.svm import OneClassSVM
+
 from hyperopt import Trials
 
 #from preprocessing import preproc_with_extra_steps
 import hyperopt_class
 
 logging.basicConfig(filename = 'ctb_model_train.log')
-
-
 split_line = '----------------------------------------------------------'
+TRAIN_SIZE = 0.8
+
+
+def split_and_cut_quantiles(dataset, features, train_size = TRAIN_SIZE, target_name = '', 
+                            floor_quantile = 0.05, ceil_quantile = 0.95):
+        '''Cut outliers by quantiles, split dataset to train and validation parts'''
+        
+        total_df = dataset[features].sample(frac = 1, random_state = 0)
+        validation_df = total_df.iloc[int(np.ceil(len(total_df)*0.95)):, :]
+        train_df = total_df.iloc[:int(np.ceil(len(total_df)*0.95)), :]
+        
+        train_df = train_df[(train_df[target_name] > train_df[target_name].quantile(floor_quantile)) &\
+                            (train_df[target_name] < train_df[target_name].quantile(ceil_quantile))]
+        
+        
+        X = train_df.drop(target_name, axis = 1)
+        y = train_df[target_name]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, train_size = train_size, random_state = 0)
+        
+        X_val = validation_df.drop(target_name, axis = 1)
+        y_val = validation_df[target_name]
+        return X, X_train, X_test, X_val, y, y_train, y_test, y_val
+
+            
+
+
 
 class ModelCTB(object):
-    
-    train_size = 0.8
-    
-    def __init__(self, dataset, features):
-        dataset = dataset
-        features = features
-        self.total_df = dataset[features].sample(frac = 1, random_state = 0)
-        self.validation_df = self.total_df.iloc[int(np.ceil(len(self.total_df)*0.95)):, :]
-        self.train_df = self.total_df.iloc[:int(np.ceil(len(self.total_df)*0.95)), :]
-        self.categorical_features = list(self.total_df.columns.get_indexer(self.total_df.select_dtypes('object').columns))[:]
 
+    
+    def __init__(self, X, X_train, X_test, X_val, y, y_train, y_test, y_val):
+        self.X = X
+        self.X_train = X_train
+        self.X_test = X_test
+        self.y = y
+        self.y_train = y_train
+        self.y_test = y_test
         
+        self.X_val = X_val
+        self.y_val = y_val
         
+        self.cat_features = list(X.columns.get_indexer(X.select_dtypes('object').columns))
+        self.pool = Pool(X, y, self.cat_features)
+        self.train_pool = Pool(X_train, y_train, self.cat_features)
+        self.test_pool = Pool(X_test, y_test, self.cat_features)
+        
+
+                
     def mape(self, pred, fact):
         '''eval metric'''
         return np.mean((np.abs((fact - pred)/fact) * 100))
         
 
 
-    def split_info(self):
-        '''Return dataset fomat_type statistics'''
-        
-        train_post, validation_post = self.train_df.query('Format_type == "Post"'), self.validation_df.query('Format_type == "Post"')
-        train_video, validation_video = self.train_df.query('Format_type == "Video"'), self.validation_df.query('Format_type == "Video"')
-        train_notvideo, validation_notvideo = self.train_df.query('Format_type == "notVideo"'), self.validation_df.query('Format_type == "notVideo"')
-        
-        def calc_stats(numerator, denominator):
-            return np.round(len(numerator)/len(denominator)*100, 0)
-        
-        train_observations = len(self.train_df)
-        train_percentage = calc_stats(self.train_df, self.total_df)
-        train_post_percentage = calc_stats(train_post, self.train_df)
-        train_video_percentage = calc_stats(train_video, self.train_df)
-        train_notvideo_percentage = calc_stats(train_notvideo, self.train_df)
-        
-        validation_observations = len(self.validation_df)
-        validation_percentage = calc_stats(self.validation_df, self.total_df)
-        validation_post_percentage = calc_stats(validation_post, self.validation_df)
-        validation_video_percentage = calc_stats(validation_video, self.validation_df)
-        validation_notvideo_percentage = calc_stats(validation_notvideo, self.validation_df)
-        
-        print('Observations for train: {} - {}%, where:\n-post: {}% \n-video: {}% \n-notvideo: {}%\
-              \nObservations for validation: {} - {}%, where:\n-post: {}% \n-video: {}% \n-notvideo: {}%'\
-              .format(train_observations, train_percentage, train_post_percentage, train_video_percentage, train_notvideo_percentage, \
-                      validation_observations, validation_percentage, validation_post_percentage, validation_video_percentage, validation_notvideo_percentage,))
-    
-
-
-    def split_and_cut_quantiles(self, target_name = '', floor_quantile = 0.05, ceil_quantile = 0.95, train = True, validation= False):
-        '''Cut outliers by quantiles, split dataset to train and validation parts'''
-        train_df = self.train_df
-        validation_df = self.validation_df
-        
-        train_df = train_df[(train_df[target_name] > train_df[target_name].quantile(floor_quantile)) &\
-                            (train_df[target_name] < train_df[target_name].quantile(ceil_quantile))]
-        
-        if train:
-            X = train_df.drop(target_name, axis = 1)
-            y = train_df[target_name]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, train_size = self.train_size, random_state = 0)
-            return X, X_train, X_test, y, y_train, y_test
-        
-        elif validation:
-            X = validation_df.drop(target_name, axis = 1)
-            y = validation_df[target_name]
-            return X, y
-
-
-
-    def model_train(self, X, y, iterations = 1000, learning_rate = 0.001, random_strength = 0.8, bagging_temperature = 0.8, max_depth = 6):
+    def model_train(self, iterations = 1000, learning_rate = 0.001, random_strength = 0.8, bagging_temperature = 0.8, max_depth = 6):
         '''CatBoost Regression model'''
         date = pd.datetime.today().date()
-        
-        train_pool = Pool(X_train, y_train, cat_features = self.categorical_features)
-        validate_pool = Pool(X_test, y_test, cat_features = self.categorical_features)
         
         print('{}\nStart model learning proccess'.format(split_line))
         model = CatBoostRegressor(
@@ -110,13 +92,13 @@ class ModelCTB(object):
             )
         
         model.fit(
-            train_pool,
-            eval_set = validate_pool,
+            self.train_pool,
+            eval_set = self.test_pool,
             plot = True
             )
         
-        pred_train = np.round(self.mape(model.predict(X_train), y_train), 4)
-        pred_test = np.round(self.mape(model.predict(X_test), y_test), 4)
+        pred_train = np.round(self.mape(model.predict(self.X_train), self.y_train), 4)
+        pred_test = np.round(self.mape(model.predict(self.X_test), self.y_test), 4)
         
         print('{}\nTrain MAPE: {}\nTest MAPE: {}'.format(split_line, pred_train, pred_test))
         
@@ -126,12 +108,11 @@ class ModelCTB(object):
             
       
         
-    def feature_importance_review(self, X_train, y_train, model):
+    def feature_importance_review(self, model):
         '''Return feature importance score'''
         print(split_line)
-        train_pool = Pool(X_train, y_train, cat_features = self.categorical_features)
-        
-        feature_importances = model.get_feature_importance(train_pool)
+        X = self.X
+        feature_importances = model.get_feature_importance(self.train_pool)
         feature_score = sorted(zip(feature_importances, X.columns), reverse = True)
         
         for score, name in feature_score: 
@@ -141,14 +122,13 @@ class ModelCTB(object):
     
     
     
-    def model_cv(self, X, y, model, folds):
+    def model_cv(self, model, folds):
         '''Run model cross-validation'''
         cv_params = model.get_params()
-        pool = Pool(X, y, cat_features = self.categorical_features)
         
         print('{}\nStart model crossvalidation proccess'.format(split_line))
         cv_data = cv(
-            pool,
+            self.pool,
             cv_params,
             fold_count = folds,
             #iterations = 800,
@@ -166,10 +146,10 @@ class ModelCTB(object):
     
     
     
-    def model_validation(self, X, y, media = False, model_to_validate_name = ''):
+    def model_validation(self, media = True, model_to_validate_name = ''):
         '''Validate model on previously defined validation set'''
         model_to_use = CatBoostRegressor().load_model(model_to_validate_name, 'cbm')
-        
+        X, y = self.X, self.y
         print('{}\nStart model validation proccess'.format(split_line))
         
         y_pred = model_to_use.predict(X)
@@ -177,21 +157,17 @@ class ModelCTB(object):
         print('Validation MAPE: {}'.format(pred_score))
         
         if media:
-            pass
- 
-###################################################### 
-#####################    test    #####################
-######################################################
-
-obj = ModelCTB(df, features)    
-X, X_train, X_test, y, y_train, y_test = obj.split_and_cut_quantiles(target_name = '', train = True)   
-model = obj.model_train(X, y)    
-    
-hyper = hyperopt_class.Hopt(X, X_train, X_test, y, y_train, y_test, obj.categorical_features)     
-cat_opt = hyper.run(fn_name = 'ctb_regressor_gpu', space = hyperopt_class.cat_params, trials = Trials(), max_evals = 100)           
-print(cat_opt)
-
-feature_importance = obj.feature_importance_review(X_train, y_train, model)
-
-X, y = obj.split_and_cut_quantiles(target_name = '', validation = True, train = False)    
-obj.model_validation(X, y, media = False, model_to_validate_name = '')
+            y_val_post, X_val_post = y[X[X['Format_type'] == 'Post'].index], X[X['Format_type'] == 'Post']
+            y_val_video, X_val_video = y[X[X['Format_type'] == 'Video'].index], X[X['Format_type'] == 'Video']
+            y_val_notvideo, X_val_notvideo = y[X[X['Format_type'] == 'notVideo'].index], X[X['Format_type'] == 'notVideo']
+            
+            y_pred_post = model_to_use.predict(X_val_post)
+            y_pred_video = model_to_use.predict(X_val_video)
+            y_pred_notvideo = model_to_use.predict(X_val_notvideo)
+            
+            pred_post_score = np.round(self.mape(y_pred_post, y_val_post), 4)
+            pred_video_score = np.round(self.mape(y_pred_video, y_val_video), 4)
+            pred_notvideo_score = np.round(self.mape(y_pred_notvideo, y_val_notvideo), 4)
+        
+            print('Validation MAPE: {}\nValidation Post MAPE: {}\nValidation Video MAPE: {}\nValidation notVIdeo MAPE: {}'\
+                  .format(pred_score, pred_post_score, pred_video_score, pred_notvideo_score))
