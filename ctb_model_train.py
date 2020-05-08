@@ -146,7 +146,7 @@ class ModelCTB(object):
     
     
     
-    def model_validation(self, media = True, model_to_validate_name = ''):
+    def model_validation(self, model_to_validate_name = ''):
         '''Validate model on previously defined validation set'''
         model_to_use = CatBoostRegressor().load_model(model_to_validate_name, 'cbm')
         X, y = self.X, self.y
@@ -155,19 +155,4 @@ class ModelCTB(object):
         y_pred = model_to_use.predict(X)
         pred_score = np.round(self.mape(y_pred, y), 4)
         print('Validation MAPE: {}'.format(pred_score))
-        
-        if media:
-            y_val_post, X_val_post = y[X[X['Format_type'] == 'Post'].index], X[X['Format_type'] == 'Post']
-            y_val_video, X_val_video = y[X[X['Format_type'] == 'Video'].index], X[X['Format_type'] == 'Video']
-            y_val_notvideo, X_val_notvideo = y[X[X['Format_type'] == 'notVideo'].index], X[X['Format_type'] == 'notVideo']
-            
-            y_pred_post = model_to_use.predict(X_val_post)
-            y_pred_video = model_to_use.predict(X_val_video)
-            y_pred_notvideo = model_to_use.predict(X_val_notvideo)
-            
-            pred_post_score = np.round(self.mape(y_pred_post, y_val_post), 4)
-            pred_video_score = np.round(self.mape(y_pred_video, y_val_video), 4)
-            pred_notvideo_score = np.round(self.mape(y_pred_notvideo, y_val_notvideo), 4)
-        
-            print('Validation MAPE: {}\nValidation Post MAPE: {}\nValidation Video MAPE: {}\nValidation notVIdeo MAPE: {}'\
-                  .format(pred_score, pred_post_score, pred_video_score, pred_notvideo_score))
+     
