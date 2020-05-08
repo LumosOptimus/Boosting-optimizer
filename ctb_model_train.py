@@ -179,3 +179,19 @@ class ModelCTB(object):
         if media:
             pass
  
+###################################################### 
+#####################    test    #####################
+######################################################
+
+obj = ModelCTB(df, features)    
+X, X_train, X_test, y, y_train, y_test = obj.split_and_cut_quantiles(target_name = '', train = True)   
+model = obj.model_train(X, y)    
+    
+hyper = hyperopt_class.Hopt(X, X_train, X_test, y, y_train, y_test, obj.categorical_features)     
+cat_opt = hyper.run(fn_name = 'ctb_regressor_gpu', space = hyperopt_class.cat_params, trials = Trials(), max_evals = 100)           
+print(cat_opt)
+
+feature_importance = obj.feature_importance_review(X_train, y_train, model)
+
+X, y = obj.split_and_cut_quantiles(target_name = '', validation = True, train = False)    
+obj.model_validation(X, y, media = False, model_to_validate_name = '')
