@@ -5,11 +5,17 @@ from hyperopt import hp, tpe, fmin, Trials, STATUS_OK
 import numpy as np
 
 
+params_range = {
+        'learning_rate':        np.arange(0.001, 0.09, 0.0001), 
+        'max_depth':            np.arange(6, 14, 1, dtype = int),
+        'random_strength':      np.arange(0.1, 0.99, 0.01),
+        'bagging_temperature':  np.arange(0.1, 1, 0.01)
+            }
 cat_opt_parameters = {
-    'learning_rate':       hp.choice('learning_rate',       np.arange(0.0001, 0.09, 0.0001)),
-    'max_depth':           hp.choice('max_depth',           np.arange(6, 16, 1, dtype = int)),
-    'random_strength':     hp.choice('random_strength',     np.arange(0.5, 0.9, 0.1)),
-    'bagging_temperature': hp.choice('bagging_temperature', np.arange(0.5, 0.9, 0.1)),
+    'learning_rate':       hp.choice('learning_rate',       params_range['learning_rate']),
+    'max_depth':           hp.choice('max_depth',           params_range['max_depth']),
+    'random_strength':     hp.choice('random_strength',     params_range['random_strength']),
+    'bagging_temperature': hp.choice('bagging_temperature', params_range['bagging_temperature']),
     'eval_metric':         'MAPE',
     'l2_leaf_reg':         3
     }
@@ -21,7 +27,7 @@ cat_params = {
     'opt_params':            cat_opt_parameters,
     'fit_params':            cat_fit_parameters,
     'loss_func':             lambda fact, pred: np.mean(np.abs((fact - pred) / fact) * 100)    # MAPE
-    } 
+    }
 
 
 class Hopt(object):
